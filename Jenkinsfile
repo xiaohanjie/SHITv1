@@ -12,86 +12,13 @@ pipeline {
     stages {
         stage('prepareEnv') {
             steps {
-                script {
-                    echo "${SCRIPT_PATH}"
-                    echo "${WORKSPACE}"
-                    println env.workspace
-                    dir("$ANSIBLE_PATH") {
-                        git branch: "${branch}", url: "${url}"
+                withFileParameter('ymlfile') {
+                    script {
+                        dir("$ANSIBLE_PATH") {
+                            git branch: "${branch}", url: "${url}"
+                        }
+                        read_yaml_file(ymlfile)
                     }
-                    yaml_string = """   
-                                        stages:
-                                        - stage: performancetest
-                                          displayname: performancetest
-                                          jobs:
-                                          - job: S3testserver
-                                            displayname: S3 performancetest on minio
-                                            vms:
-                                              vmsagentname: server
-                                              vmsboxname: ubuntu
-                                              vmsboxversion: 1604
-                                              vmsipadd: 192.168.2.30,192.168.2.31,192.168.2.32,192.168.2.33
-                                              vmsnodename: test1,test2,test3,test4
-                                              vmsnum: 4
-                                              vmsusername: root
-                                              vmspassword: root123
-                                            steps:
-                                            - task: minio
-                                              type: ansible
-                                              displayname: install minio
-                                              inputs:
-                                                minio_server_datadirs: /minio-data
-                                                minio_access_key: "1234567890"
-                                                minio_secret_key: "1234567890"
-                                            - task: sshkey
-                                              type: ansible
-                                              displayname: sshkey
-                                            - task: S3_benchmark
-                                              displayname: S3_benchmark
-                                              inputs:
-                                                command1: build
-                                                command2: build1
-                                            - script: RunShellCmdAllNode
-                                              displayname: run touch command all node
-                                              isparallel: true
-                                              inputs:
-                                                command1: touch 1223, sleep 10
-                                                command2: touch 123123, sleep 10
-                                                command3: touch 131232, sleep 10
-                                            - script: RunShellCmdAllNode
-                                              displayname: run touch command all node
-                                              isparallel: false
-                                              inputs:
-                                                command1: touch 2222, sleep 10
-                                                command2: touch 3333, sleep 10
-                                                command3: touch 4444, sleep 10
-                                          - job: S3testclient
-                                            displayname: S3 performancetest on minio client
-                                            vms:
-                                              vmsagentname: client
-                                              vmsboxname: centos
-                                              vmsboxversion: 7.6
-                                              vmsipadd: 192.168.2.34
-                                              vmsnodename: client1
-                                              vmsnum: 1
-                                              vmsusername: root
-                                              vmspassword: root123
-                                            steps:
-                                            - task: sshkey
-                                              type: ansible
-                                              displayname: sshkey
-                                            - script: RunShellCmdAllNode
-                                              displayname: run touch command all node
-                                              isparallel: true
-                                              inputs:
-                                                command1: touch 1231, sleep 10
-                                                command2: touch 2324, sleep 10
-                                                command3: touch 4324, sleep 10
-                                        - stage: buildtest
-                                          displayname: 
-                                        """
-					read_yaml_file(yaml_string)
-					def testki = readYaml text : yaml_string
                 }
             }
         }
@@ -229,7 +156,8 @@ def ExcuteScript(Stage, Job, VmsAgent, Script) {
         }
 }
 
-def read_yaml_file(yaml_file) {
+def read_yaml_file(file) {
+    def	yaml_file = readFile file
 	def datas = ""
 	if(yaml_file.toString().endsWith(".yml")){
 		datas = readYaml file : yaml_file
@@ -272,7 +200,5 @@ def read_yaml_file(yaml_file) {
                 }
             }
         }
-        
     }
-
 }
