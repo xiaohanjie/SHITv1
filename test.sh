@@ -1,10 +1,16 @@
 #!/bin/bash 
 
 . $(dirname "${0}")/common.sh
-#set -e # exit on an error
+set -e # exit on an error
 
-dir=$(cd `dirname $0`; pwd)
+#dir=$(cd `dirname $0`; pwd)
+dir=$WORKSPACE_PATH
 agentconfigdir=$dir/conf
+vagrant=$dir/Vagrantfile
+
+echo $dir
+echo $agentconfigdir
+echo $vagrant
 
 #init default vagrant
 vmsboxname="ubuntu"
@@ -17,19 +23,19 @@ vmspassword="root123"
 vmsagentname="client"
 
 
-[ -f Vagrantfile ] && echo "Vagrantfile is existed" || touch Vagrantfile
+[ -f $vagrant ] && echo "Vagrantfile is existed" || touch $vagrant
 
 function CheckVMSAgentStatus() {
     local agentname=$1
     if [ "$agentname" == "" ]; then
         ERROR "agentname is required in the argument"
-        exit 0
+        exit 1
     fi
 
-    local isexist=`cat Vagrantfile | grep $agentname.each`
+    local isexist=`cat $vagrant | grep $agentname.each`
     if [ "$isexist" != "" ]; then
-        ERROR "agent is existed in this stage, pls change a differenet agentname. "
-        exit 0
+        ERROR "agentname is existed in this stage, pls change a differenet agentname. "
+        exit 1
     fi
 }
 
@@ -41,7 +47,7 @@ function CheckVMSNICStatus() {
        ping -c2 -i0.3 -W1 $ip &>/dev/null
        if [ $? -eq 0 ]; then
           ERROR "ip address $ip is up, pls change vms private address"
-          exit 0
+          exit 1
        fi
     done
 }
@@ -51,13 +57,13 @@ function CheckVMSBoxStatus() {
     local isexist=`vagrant box list | grep $boxname`
     if [ "$isexist" == "" ]; then
         ERROR "box $boxname isnot found in box list, pls add this box in vagrant"
-        exit 0
+        exit 1
     fi 
 }
 
 
 function SetVMSVariables() {
-    agentname=$1
+    local agentname=$1
     #cat $agentconfigdir/$agentname | grep vmsagentname | awk -F = '{print $2}'
     agentconfigpath=$agentconfigdir/$agentname
     [ -f $agentconfigpath ] && echo "agentconfigfile $agentconfigpath is existed" || ERROR " agentconfigfile is not found"
@@ -81,23 +87,23 @@ function SetVMSVariables() {
 agentname=$1
 
 SetVMSVariables $agentname 
-CheckVMSAgentStatus $vmsagentname
-CheckVMSBoxStatus $vmsboxname$vmsboxversion
-CheckVMSNICStatus $vmsipadd
+#CheckVMSAgentStatus $vmsagentname
+#CheckVMSBoxStatus $vmsboxname$vmsboxversion
+#CheckVMSNICStatus $vmsipadd
 
 
 #create a vagrant file
 INFO "Generating Vagrantfile"
-echo "$vmsagentname = {" >> Vagrantfile
+echo "$vmsagentname = {" >> $vagrant
 for ((i=1; i<=$vmsnum; i=i+1))
 do
 ip=`echo $vmsipadd | awk -F , '{print $'$i'}'`
 node=`echo $vmsnodename | awk -F , '{print $'$i'}'`
-echo "     :$node" "=>" "'$ip'," >> Vagrantfile
+echo "     :$node" "=>" "'$ip'," >> $vagrant
 done
-echo "}" >> Vagrantfile
+echo "}" >> $vagrant
 
-cat >> Vagrantfile <<EOF
+cat >> $vagrant <<EOF
 Vagrant.configure("2") do |config|
   $vmsagentname.each do |vms_name, vms_ip|
       config.vm.define vms_name do |vms_config|
@@ -123,6 +129,6 @@ end
 EOF
 
 #virsh list
-vagrant up
+cd $dir; vagrant up
 [ $? == 0 ] && INFO "Create VMS successfully" || ERROR "Failed to Create VMS"
 
