@@ -8,6 +8,7 @@ pipeline {
         ANSIBLE_PATH = "${WORKSPACE}/ansible"
         AGENTCONFIG_PATH = "${WORKSPACE}/conf"
         TEMP_PATH = "${WORKSPACE}/tmp"
+        VMS_SCRIPT = "${WORKSPACE}/test.sh"
     }
     stages {
         stage('prepareEnv') {
@@ -19,22 +20,6 @@ pipeline {
                         }
                         read_yaml_file(ymlfile)
                     }
-                }
-            }
-        }
-        
-        stage('ExcuteTest') {
-            steps {
-                script {
-                    echo "this is Test Stage"
-                }
-            }
-        }
-        
-        stage("cleanup") {
-            steps {
-                script {
-                    echo "this is clean up stage"
                 }
             }
         }
@@ -59,16 +44,13 @@ def RunShellScript(String Cmd) {
 
 def RunShellScript(String Cmd, boolean getReturn) {
     if (getReturn && getReturn == true) {
-      sh(script: "/usr/bin/bash $Cmd", returnStdout: true).trim()
+      sh(script: "/usr/bin/bash ${WORKSPACE}/$Cmd", returnStdout: true).trim()
     } else {
-      sh "/usr/bin/bash $Cmd"
+      sh "/usr/bin/bash ${WORKSPACE}/$Cmd"
     }
 }
 
 def PrepareVMSAgent(Stage, Job, VmsAgent) {
-    println VmsAgent
-    println Stage
-    println Job
     def vms = [:] 
     def configtext = ""
     vms = VmsAgent
@@ -77,9 +59,17 @@ def PrepareVMSAgent(Stage, Job, VmsAgent) {
     vms.each {
         configtext = configtext + it.key + "=" + it.value + "\n"
     }
-    writeFile file: VmsAgentCONFIGFilePATH, text: configtext    
-    RunShellScript("test.sh $VmsAgentCONFIGFile")
-    
+    writeFile file: VmsAgentCONFIGFilePATH, text: configtext
+    stage(Job + "prepareVMS" + vms.vmsagentname) {
+        try {
+            sh "/usr/bin/bash ${VMS_SCRIPT} ${VmsAgentCONFIGFile}"
+        } 
+        catch (exc) {
+            println "prepareVMS ${vms.vmsagentname}: STAGE_FAILED_EXECPTION"
+            currentBuild.result = 'FAILURE'
+            throw exc
+        }					
+    }
 }
 
 def CleanupVMSAgent(Stage) {
@@ -87,24 +77,29 @@ def CleanupVMSAgent(Stage) {
 }
 
 def ExcuteTask(Stage, Job, VmsAgent, Task) {
-    println Task
     def inputs = [:]
 	def text = ""
 	def vms = [:]
 	vms = VmsAgent
-    inputs = Task.inputs
-    	
+    VmsAgentName = Stage + "-" + Job + "-" + vms.vmsagentname
+	VmsAgentCONFIGFile = VmsAgentName + "-AGENTCONFIG"
+    inputs = Task.inputs	
     if (Task.type ==~ "ansible")
-    {
-	    def ansibledir = ANSIBLE_PATH + "/" + Task.task
-		inputs.each {
-	        text = it.value + " " + text 
-	    }
-	    VmsAgentName = Stage + "-" + Job + "-" + vms.vmsagentname
-	    VmsAgentCONFIGFile = VmsAgentName + "-AGENTCONFIG"
-	    println VmsAgentCONFIGFile
-        println text
-        sh "/usr/bin/bash ${ansibledir}/run.sh ${VmsAgentCONFIGFile} ${text}"        
+    { 
+        node {
+            stage(Job + " " + Task.type ) {
+                try {
+                    def ansibledir = ANSIBLE_PATH + "/" + Task.task
+                    inputs.each {
+                        text = it.value + " " + text 
+                        
+                    }
+                    sh "/usr/bin/bash ${ansibledir}/run.sh ${VmsAgentCONFIGFile} ${text}"
+                } catch (exc) {
+                    println exc
+                }					
+		    }
+		}		
     }	
 }
 
@@ -121,7 +116,7 @@ def ExcuteScript(Stage, Job, VmsAgent, Script) {
         inputs.each {
             stepsForParallel[it] = {
                 node {
-                    stage("${it}") {
+                    stage(Job + " " + "Script" ) {
                         try {
 							def command = it.value.split(",")
 							command.each {
@@ -138,22 +133,21 @@ def ExcuteScript(Stage, Job, VmsAgent, Script) {
         parallel stepsForParallel
     } else {
         inputs.each {
-                node {
-                    stage("${it}") {
-                        try {
-							def command = it.value.split(",")
-							command.each {
-							    println it
-							    RunShellCmdAllNode("${VmsAgentCONFIGFile}", "${it}")
-							}
-                        } catch(exc) {
-                            println exc
-                        }
-                                    
+            node {
+                stage(Job + " " + "Script") {
+                    try {
+						def command = it.value.split(",")
+						command.each {
+						    println it
+						    RunShellCmdAllNode("${VmsAgentCONFIGFile}", "${it}")
+						}
+                    } catch(exc) {
+                        println exc
                     }
                 }
-			}
-        }
+            }
+		}
+    }
 }
 
 def read_yaml_file(file) {
